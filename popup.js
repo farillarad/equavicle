@@ -6,7 +6,6 @@
 (function () {
   'use strict';
 
-  // DOM refs
   const latexInput = document.getElementById('latexInput');
   const parseBtn = document.getElementById('parseBtn');
   const clearBtn = document.getElementById('clearBtn');
@@ -19,7 +18,7 @@
   const modeAutoType = document.getElementById('modeAutoType');
   const modeCopy = document.getElementById('modeCopy');
 
-  let currentMode = 'autotype'; // 'autotype' | 'copy'
+  let currentMode = 'autotype';
   let extractedEquations = [];
 
   // ---- Mode Toggle ----
@@ -30,23 +29,15 @@
     currentMode = mode;
     modeAutoType.classList.toggle('active', mode === 'autotype');
     modeCopy.classList.toggle('active', mode === 'copy');
-    if (extractedEquations.length > 0) {
-      renderEquations(extractedEquations);
-    }
+    if (extractedEquations.length > 0) renderEquations(extractedEquations);
   }
 
   // ---- Parse Button ----
   parseBtn.addEventListener('click', () => {
     const text = latexInput.value.trim();
-    if (!text) {
-      showToast('Paste some text first', true);
-      return;
-    }
+    if (!text) { showToast('Paste some text first', true); return; }
     extractedEquations = extractLatex(text);
-    if (extractedEquations.length === 0) {
-      showToast('No LaTeX equations found', true);
-      return;
-    }
+    if (extractedEquations.length === 0) { showToast('No LaTeX equations found', true); return; }
     renderEquations(extractedEquations);
   });
 
@@ -59,61 +50,160 @@
     emptyState.classList.remove('hidden');
   });
 
-  // ---- Extract LaTeX ----
+  // ============================================================
+  // LATEX EXTRACTION — Left-to-right single-pass tokenizer
+  // Handles consecutive inline equations correctly ($eq1$$eq2$)
+  // ============================================================
   function extractLatex(text) {
     const equations = [];
-    const patterns = [
-      { regex: /\$\$([\s\S]*?)\$\$/g, type: 'display' },
-      { regex: /\\\[([\s\S]*?)\\\]/g, type: 'display' },
-      { regex: /(?<!\$)\$(?!\$)((?:[^$\\]|\\.)+)\$(?!\$)/g, type: 'inline' },
-      { regex: /\\\(([\s\S]*?)\\\)/g, type: 'inline' },
-    ];
-
     const found = new Set();
+    let i = 0;
 
-    for (const { regex, type } of patterns) {
-      let match;
-      while ((match = regex.exec(text)) !== null) {
-        const raw = match[1].trim();
-        if (raw && !found.has(raw)) {
-          found.add(raw);
-          equations.push({
-            raw,
-            cleaned: cleanForGDocs(raw),
-            type,
-          });
+    function addEq(raw, type) {
+      raw = raw.trim();
+      if (raw && !found.has(raw)) {
+        found.add(raw);
+        equations.push({ raw, cleaned: cleanForGDocs(raw), type });
+      }
+    }
+
+    while (i < text.length) {
+      // --- \[...\] display math ---
+      if (text[i] === '\\' && text[i + 1] === '[') {
+        const close = text.indexOf('\\]', i + 2);
+        if (close !== -1) {
+          addEq(text.substring(i + 2, close), 'display');
+          i = close + 2;
+          continue;
         }
       }
+
+      // --- \(...\) inline math ---
+      if (text[i] === '\\' && text[i + 1] === '(') {
+        const close = text.indexOf('\\)', i + 2);
+        if (close !== -1) {
+          addEq(text.substring(i + 2, close), 'inline');
+          i = close + 2;
+          continue;
+        }
+      }
+
+      // --- Dollar sign math ---
+      if (text[i] === '$') {
+        if (text[i + 1] === '$') {
+          // Potential $$...$$ display math
+          // Check that this is a "true" display delimiter:
+          // The $$ should be preceded by whitespace/newline/start OR we're confident it's display
+          const before = i > 0 ? text[i - 1] : '\n';
+          const isStartOfLine = (before === '\n' || before === '\r' || i === 0);
+          const isPrecededByWhitespace = /[\s:;,.!?]/.test(before) || i === 0;
+
+          if (isStartOfLine || isPrecededByWhitespace) {
+            // Look for closing $$
+            const close = findClosingDoubleDollar(text, i + 2);
+            if (close !== -1) {
+              addEq(text.substring(i + 2, close), 'display');
+              i = close + 2;
+              continue;
+            }
+          }
+          // If not a true display delimiter, fall through to single $ handling
+        }
+
+        // Single $ inline math — find the matching closing $
+        const close = findClosingSingleDollar(text, i + 1);
+        if (close !== -1 && close > i + 1) {
+          addEq(text.substring(i + 1, close), 'inline');
+          i = close + 1;
+          continue;
+        }
+      }
+
+      i++;
     }
 
     return equations;
   }
 
-  // ---- Clean LaTeX for Google Docs Equation Editor ----
-  function cleanForGDocs(latex) {
-    let cleaned = latex;
-
-    cleaned = cleaned.replace(/\\(displaystyle|textstyle|scriptstyle|scriptscriptstyle)\s*/g, '');
-    cleaned = cleaned.replace(/\\left\s*/g, '');
-    cleaned = cleaned.replace(/\\right\s*/g, '');
-    cleaned = cleaned.replace(/\\text\{([^}]*)\}/g, '$1');
-    cleaned = cleaned.replace(/\\mathrm\{([^}]*)\}/g, '$1');
-    cleaned = cleaned.replace(/\\mathbf\{([^}]*)\}/g, '$1');
-    cleaned = cleaned.replace(/\\mathit\{([^}]*)\}/g, '$1');
-    cleaned = cleaned.replace(/\\overrightarrow\{([^}]*)\}/g, '$1');
-    cleaned = cleaned.replace(/\\boxed\{([^}]*)\}/g, '$1');
-    cleaned = cleaned.replace(/\\(quad|qquad)/g, ' ');
-    cleaned = cleaned.replace(/\\[,;:!]/g, ' ');
-    cleaned = cleaned.replace(/\\cdots/g, '...');
-    cleaned = cleaned.replace(/\\ldots/g, '...');
-    cleaned = cleaned.replace(/\\div/g, '÷');
-    cleaned = cleaned.replace(/\\times/g, '×');
-    cleaned = cleaned.replace(/\s{2,}/g, ' ');
-
-    return cleaned.trim();
+  /**
+   * Find closing $$ for display math, starting from position `start`.
+   * Scans for the next $$ that looks like a closing delimiter.
+   */
+  function findClosingDoubleDollar(text, start) {
+    let i = start;
+    while (i < text.length - 1) {
+      if (text[i] === '\\') {
+        i += 2; // skip escaped characters
+        continue;
+      }
+      if (text[i] === '$' && text[i + 1] === '$') {
+        return i;
+      }
+      i++;
+    }
+    return -1;
   }
 
-  // ---- Render Equations with KaTeX ----
+  /**
+   * Find closing single $ for inline math.
+   * Skips escaped \$ and stops at the first unescaped $.
+   * Won't match across paragraph boundaries (double newlines).
+   */
+  function findClosingSingleDollar(text, start) {
+    let i = start;
+    while (i < text.length) {
+      if (text[i] === '\\') {
+        i += 2; // skip escaped characters
+        continue;
+      }
+      if (text[i] === '$') {
+        return i;
+      }
+      // Don't match across paragraph boundaries
+      if (text[i] === '\n' && i + 1 < text.length && text[i + 1] === '\n') {
+        return -1;
+      }
+      i++;
+    }
+    return -1;
+  }
+
+  // ============================================================
+  // CLEAN LATEX FOR GOOGLE DOCS EQUATION EDITOR
+  // ============================================================
+  function cleanForGDocs(latex) {
+    let c = latex;
+
+    // Remove styling commands GDocs doesn't understand
+    c = c.replace(/\\(displaystyle|textstyle|scriptstyle|scriptscriptstyle)\s*/g, '');
+    c = c.replace(/\\left\s*/g, '');
+    c = c.replace(/\\right\s*/g, '');
+
+    // Text-style commands → just content
+    c = c.replace(/\\text\{([^}]*)\}/g, '$1');
+    c = c.replace(/\\mathrm\{([^}]*)\}/g, '$1');
+    c = c.replace(/\\mathbf\{([^}]*)\}/g, '$1');
+    c = c.replace(/\\mathit\{([^}]*)\}/g, '$1');
+    c = c.replace(/\\overrightarrow\{([^}]*)\}/g, '$1');
+    c = c.replace(/\\boxed\{([^}]*)\}/g, '$1');
+
+    // Spacing commands → space
+    c = c.replace(/\\(quad|qquad)/g, ' ');
+    c = c.replace(/\\[,;:!]/g, ' ');
+
+    // Dots
+    c = c.replace(/\\cdots/g, '...');
+    c = c.replace(/\\ldots/g, '...');
+
+    // Clean multiple spaces
+    c = c.replace(/\s{2,}/g, ' ');
+
+    return c.trim();
+  }
+
+  // ============================================================
+  // RENDER EQUATIONS
+  // ============================================================
   function renderEquations(equations) {
     emptyState.classList.add('hidden');
     results.classList.remove('hidden');
@@ -125,7 +215,6 @@
       card.className = 'equation-card';
       card.style.animationDelay = `${i * 40}ms`;
 
-      // Render KaTeX preview
       let renderedHtml;
       try {
         renderedHtml = katex.renderToString(eq.raw, {
@@ -135,7 +224,7 @@
           trust: true,
         });
       } catch (e) {
-        renderedHtml = `<span style="color:#EF4444;font-size:12px;">Render error: ${escapeHtml(e.message)}</span>`;
+        renderedHtml = `<span style="color:#EF4444;font-size:11px;">Error: ${escapeHtml(e.message)}</span>`;
       }
 
       card.innerHTML = `
@@ -173,7 +262,7 @@
     bindCardActions();
   }
 
-  // ---- Bind Card Actions ----
+  // ---- Card Actions ----
   function bindCardActions() {
     document.querySelectorAll('.btn-copy').forEach(btn => {
       btn.addEventListener('click', (e) => {
@@ -204,7 +293,7 @@
     });
   }
 
-  // ---- Send to Content Script ----
+  // ---- Content Script Communication ----
   async function sendToContentScript(cleanedLatex) {
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
@@ -212,7 +301,6 @@
         showToast('Open a Google Doc first', true);
         return;
       }
-
       chrome.tabs.sendMessage(tab.id, {
         action: 'insertEquation',
         latex: cleanedLatex,
@@ -232,7 +320,7 @@
     }
   }
 
-  // ---- Copy to Clipboard ----
+  // ---- Clipboard ----
   async function copyToClipboard(text) {
     try {
       await navigator.clipboard.writeText(text);
@@ -263,14 +351,13 @@
     }, 2500);
   }
 
-  // ---- Util ----
   function escapeHtml(str) {
     return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
   }
 
-  // ---- Auto-parse on paste ----
+  // Auto-parse on paste
   latexInput.addEventListener('paste', () => {
-    setTimeout(() => parseBtn.click(), 100);
+    setTimeout(() => parseBtn.click(), 150);
   });
 
 })();
