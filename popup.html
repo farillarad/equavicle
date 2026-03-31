@@ -4,36 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Equavicle</title>
+  <link rel="stylesheet" href="katex.min.css">
   <link rel="stylesheet" href="popup.css">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-  <script>
-    window.MathJax = {
-      tex: { inlineMath: [['$','$'], ['\\(','\\)']], displayMath: [['$$','$$'], ['\\[','\\]']] },
-      options: { skipHtmlTags: ['textarea'] }
-    };
-  </script>
-  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
 </head>
 <body>
   <div class="container">
-    <!-- Ambient glow effects -->
-    <div class="ambient-glow glow-1"></div>
-    <div class="ambient-glow glow-2"></div>
 
     <!-- Header -->
     <header class="header">
       <div class="logo-row">
         <div class="logo-icon">
-          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
-            <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#logoGrad)" />
+          <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
+            <rect x="1" y="1" width="30" height="30" rx="8" fill="#8B5CF6" />
             <text x="16" y="22" text-anchor="middle" font-size="16" font-weight="700" fill="white" font-family="Inter, sans-serif">∑</text>
-            <defs>
-              <linearGradient id="logoGrad" x1="0" y1="0" x2="32" y2="32">
-                <stop offset="0%" stop-color="#8B5CF6"/>
-                <stop offset="50%" stop-color="#6366F1"/>
-                <stop offset="100%" stop-color="#3B82F6"/>
-              </linearGradient>
-            </defs>
           </svg>
         </div>
         <div class="logo-text-group">
@@ -62,7 +45,6 @@
           </svg>
           Copy Mode
         </button>
-        <div class="mode-slider"></div>
       </div>
     </div>
 
@@ -76,8 +58,7 @@
         Paste LaTeX or AI response
       </label>
       <div class="textarea-wrapper">
-        <textarea id="latexInput" class="latex-input" placeholder="Paste text containing LaTeX equations here...&#10;&#10;Example: The force is $$F = ma$$ and energy is $$E = mc^2$$&#10;Or inline: The variable $x$ satisfies $x^2 + y^2 = r^2$" spellcheck="false"></textarea>
-        <div class="textarea-glow"></div>
+        <textarea id="latexInput" class="latex-input" placeholder="Paste text containing LaTeX equations here...&#10;&#10;Example: The force is $$F = ma$$ and energy is $$E = mc^2$$" spellcheck="false"></textarea>
       </div>
       <div class="input-actions">
         <button id="parseBtn" class="btn btn-primary">
@@ -121,6 +102,7 @@
     </div>
   </div>
 
+  <script src="katex.min.js"></script>
   <script src="popup.js"></script>
 </body>
 </html>

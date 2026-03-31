@@ -1,6 +1,6 @@
 /**
  * Equavicle — Popup Script
- * Parses LaTeX from pasted text, renders previews, and sends to content script
+ * Parses LaTeX from pasted text, renders previews with KaTeX, and sends to content script
  */
 
 (function () {
@@ -30,7 +30,6 @@
     currentMode = mode;
     modeAutoType.classList.toggle('active', mode === 'autotype');
     modeCopy.classList.toggle('active', mode === 'copy');
-    // Re-render cards with correct buttons
     if (extractedEquations.length > 0) {
       renderEquations(extractedEquations);
     }
@@ -64,17 +63,13 @@
   function extractLatex(text) {
     const equations = [];
     const patterns = [
-      // Display math: $$...$$ (non-greedy)
       { regex: /\$\$([\s\S]*?)\$\$/g, type: 'display' },
-      // Display math: \[...\]
       { regex: /\\\[([\s\S]*?)\\\]/g, type: 'display' },
-      // Inline math: $...$ (not preceded/followed by $)
       { regex: /(?<!\$)\$(?!\$)((?:[^$\\]|\\.)+)\$(?!\$)/g, type: 'inline' },
-      // Inline math: \(...\)
       { regex: /\\\(([\s\S]*?)\\\)/g, type: 'inline' },
     ];
 
-    const found = new Set(); // avoid duplicates
+    const found = new Set();
 
     for (const { regex, type } of patterns) {
       let match;
@@ -98,50 +93,27 @@
   function cleanForGDocs(latex) {
     let cleaned = latex;
 
-    // Remove \displaystyle, \textstyle, etc.
     cleaned = cleaned.replace(/\\(displaystyle|textstyle|scriptstyle|scriptscriptstyle)\s*/g, '');
-
-    // Remove \left and \right (GDocs handles auto-sizing)
     cleaned = cleaned.replace(/\\left\s*/g, '');
     cleaned = cleaned.replace(/\\right\s*/g, '');
-
-    // \text{...} → just the text content (GDocs doesn't support \text)
     cleaned = cleaned.replace(/\\text\{([^}]*)\}/g, '$1');
-
-    // \mathrm{...} → content
     cleaned = cleaned.replace(/\\mathrm\{([^}]*)\}/g, '$1');
-
-    // \mathbf{...} → content (GDocs eq editor doesn't do bold)
     cleaned = cleaned.replace(/\\mathbf\{([^}]*)\}/g, '$1');
-
-    // \mathit{...} → content
     cleaned = cleaned.replace(/\\mathit\{([^}]*)\}/g, '$1');
-
-    // \overrightarrow{...} → content (arrow over)
     cleaned = cleaned.replace(/\\overrightarrow\{([^}]*)\}/g, '$1');
-
-    // \boxed{...} → content
     cleaned = cleaned.replace(/\\boxed\{([^}]*)\}/g, '$1');
-
-    // \quad, \qquad → space
     cleaned = cleaned.replace(/\\(quad|qquad)/g, ' ');
-
-    // \, \; \: \! → space or nothing
     cleaned = cleaned.replace(/\\[,;:!]/g, ' ');
-
-    // \cdots → ...
     cleaned = cleaned.replace(/\\cdots/g, '...');
-
-    // \ldots → ...
     cleaned = cleaned.replace(/\\ldots/g, '...');
-
-    // Multiple spaces → single space
+    cleaned = cleaned.replace(/\\div/g, '÷');
+    cleaned = cleaned.replace(/\\times/g, '×');
     cleaned = cleaned.replace(/\s{2,}/g, ' ');
 
     return cleaned.trim();
   }
 
-  // ---- Render Equations ----
+  // ---- Render Equations with KaTeX ----
   function renderEquations(equations) {
     emptyState.classList.add('hidden');
     results.classList.remove('hidden');
@@ -153,14 +125,25 @@
       card.className = 'equation-card';
       card.style.animationDelay = `${i * 40}ms`;
 
-      const previewLatex = eq.type === 'display' ? `$$${eq.raw}$$` : `$${eq.raw}$`;
+      // Render KaTeX preview
+      let renderedHtml;
+      try {
+        renderedHtml = katex.renderToString(eq.raw, {
+          displayMode: eq.type === 'display',
+          throwOnError: false,
+          errorColor: '#EF4444',
+          trust: true,
+        });
+      } catch (e) {
+        renderedHtml = `<span style="color:#EF4444;font-size:12px;">Render error: ${escapeHtml(e.message)}</span>`;
+      }
 
       card.innerHTML = `
         <div class="eq-header">
           <span class="eq-index">Eq ${i + 1}</span>
           <span class="eq-type">${eq.type}</span>
         </div>
-        <div class="eq-preview" id="eqPreview${i}">${previewLatex}</div>
+        <div class="eq-preview">${renderedHtml}</div>
         <div class="eq-raw" title="Click to expand">${escapeHtml(eq.raw)}</div>
         <div class="eq-actions">
           ${currentMode === 'autotype'
@@ -187,40 +170,31 @@
       equationsList.appendChild(card);
     });
 
-    // Typeset MathJax
-    if (window.MathJax && window.MathJax.typesetPromise) {
-      window.MathJax.typesetPromise([equationsList]).catch(err => {
-        console.warn('MathJax typeset error:', err);
-      });
-    }
-
-    // Bind button events
     bindCardActions();
   }
 
   // ---- Bind Card Actions ----
   function bindCardActions() {
-    // Copy buttons
     document.querySelectorAll('.btn-copy').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const idx = parseInt(e.currentTarget.dataset.index);
         const eq = extractedEquations[idx];
         copyToClipboard(eq.cleaned);
         e.currentTarget.classList.add('copied');
-        e.currentTarget.querySelector('svg').style.display = 'none';
+        const svgEl = e.currentTarget.querySelector('svg');
+        if (svgEl) svgEl.style.display = 'none';
         const textNode = e.currentTarget.lastChild;
         const origText = textNode.textContent;
         textNode.textContent = ' Copied!';
         showToast('Copied to clipboard');
         setTimeout(() => {
           e.currentTarget.classList.remove('copied');
-          e.currentTarget.querySelector('svg').style.display = '';
+          if (svgEl) svgEl.style.display = '';
           textNode.textContent = origText;
         }, 1500);
       });
     });
 
-    // Auto-type buttons
     document.querySelectorAll('.btn-insert').forEach(btn => {
       btn.addEventListener('click', async (e) => {
         const idx = parseInt(e.currentTarget.dataset.index);
@@ -244,7 +218,7 @@
         latex: cleanedLatex,
       }, (response) => {
         if (chrome.runtime.lastError) {
-          showToast('Could not connect — refresh the doc', true);
+          showToast('Refresh the Google Doc and try again', true);
           return;
         }
         if (response && response.success) {
@@ -263,7 +237,6 @@
     try {
       await navigator.clipboard.writeText(text);
     } catch {
-      // Fallback
       const ta = document.createElement('textarea');
       ta.value = text;
       ta.style.position = 'fixed';
@@ -282,7 +255,6 @@
     toastMsg.textContent = msg;
     toast.classList.remove('hidden', 'error');
     if (isError) toast.classList.add('error');
-    // Force reflow
     void toast.offsetWidth;
     toast.classList.add('show');
     toastTimer = setTimeout(() => {
@@ -298,9 +270,7 @@
 
   // ---- Auto-parse on paste ----
   latexInput.addEventListener('paste', () => {
-    setTimeout(() => {
-      parseBtn.click();
-    }, 100);
+    setTimeout(() => parseBtn.click(), 100);
   });
 
 })();
