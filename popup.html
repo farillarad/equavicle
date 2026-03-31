@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Equavicle</title>
+  <link rel="stylesheet" href="popup.css">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script>
+    window.MathJax = {
+      tex: { inlineMath: [['$','$'], ['\\(','\\)']], displayMath: [['$$','$$'], ['\\[','\\]']] },
+      options: { skipHtmlTags: ['textarea'] }
+    };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-chtml.js" async></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Ambient glow effects -->
+    <div class="ambient-glow glow-1"></div>
+    <div class="ambient-glow glow-2"></div>
+
+    <!-- Header -->
+    <header class="header">
+      <div class="logo-row">
+        <div class="logo-icon">
+          <svg width="32" height="32" viewBox="0 0 32 32" fill="none">
+            <rect x="1" y="1" width="30" height="30" rx="8" fill="url(#logoGrad)" />
+            <text x="16" y="22" text-anchor="middle" font-size="16" font-weight="700" fill="white" font-family="Inter, sans-serif">∑</text>
+            <defs>
+              <linearGradient id="logoGrad" x1="0" y1="0" x2="32" y2="32">
+                <stop offset="0%" stop-color="#8B5CF6"/>
+                <stop offset="50%" stop-color="#6366F1"/>
+                <stop offset="100%" stop-color="#3B82F6"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <div class="logo-text-group">
+          <h1 class="logo-text">Equavicle</h1>
+          <span class="version-badge">v1.0</span>
+        </div>
+      </div>
+      <p class="tagline">LaTeX → Google Docs Equations</p>
+    </header>
+
+    <!-- Mode Toggle -->
+    <div class="mode-toggle-wrapper">
+      <div class="mode-toggle">
+        <button id="modeAutoType" class="mode-btn active" data-mode="autotype" title="Auto-type equations into Google Docs equation editor">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="4 7 4 4 20 4 20 7"></polyline>
+            <line x1="9" y1="20" x2="15" y2="20"></line>
+            <line x1="12" y1="4" x2="12" y2="20"></line>
+          </svg>
+          Auto-Type
+        </button>
+        <button id="modeCopy" class="mode-btn" data-mode="copy" title="Copy cleaned LaTeX to clipboard">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+          </svg>
+          Copy Mode
+        </button>
+        <div class="mode-slider"></div>
+      </div>
+    </div>
+
+    <!-- Input Area -->
+    <div class="input-section">
+      <label for="latexInput" class="input-label">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+          <polyline points="14 2 14 8 20 8"></polyline>
+        </svg>
+        Paste LaTeX or AI response
+      </label>
+      <div class="textarea-wrapper">
+        <textarea id="latexInput" class="latex-input" placeholder="Paste text containing LaTeX equations here...&#10;&#10;Example: The force is $$F = ma$$ and energy is $$E = mc^2$$&#10;Or inline: The variable $x$ satisfies $x^2 + y^2 = r^2$" spellcheck="false"></textarea>
+        <div class="textarea-glow"></div>
+      </div>
+      <div class="input-actions">
+        <button id="parseBtn" class="btn btn-primary">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+          </svg>
+          Extract Equations
+        </button>
+        <button id="clearBtn" class="btn btn-ghost">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"></line>
+            <line x1="6" y1="6" x2="18" y2="18"></line>
+          </svg>
+          Clear
+        </button>
+      </div>
+    </div>
+
+    <!-- Results -->
+    <div id="results" class="results hidden">
+      <div class="results-header">
+        <span class="results-count" id="resultsCount">0 equations found</span>
+      </div>
+      <div id="equationsList" class="equations-list"></div>
+    </div>
+
+    <!-- Empty State -->
+    <div id="emptyState" class="empty-state">
+      <div class="empty-icon-wrapper">
+        <div class="empty-icon">∫</div>
+        <div class="empty-orbit"></div>
+      </div>
+      <p class="empty-text">Paste text with LaTeX equations to get started</p>
+      <p class="empty-hint">Supports $$...$$ , $...$ , \[...\] , \(...\) formats</p>
+    </div>
+
+    <!-- Status Toast -->
+    <div id="toast" class="toast hidden">
+      <div class="toast-icon">✓</div>
+      <span id="toastMsg"></span>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
